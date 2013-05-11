@@ -62,7 +62,7 @@ def features(history, tag): #history is a 4-tuple: (tag-2, tag-1, words, index)
     #gTRIGRAM:S:U:V -> 1 if t_-2=S and t_-1=U and t=V
     g[ (history[0],history[1],tag) ] = 1
     g[ (0, history[1], tag) ] = 1
-    g[ (1, history[0],tag)] = 1
+    g[ (1, history[0], tag)] = 1
     
     if not 0 <= history[3] < len(history[2]):
         return g
@@ -75,39 +75,62 @@ def features(history, tag): #history is a 4-tuple: (tag-2, tag-1, words, index)
     #gTAG:U:r -> 1 if word = r and tag = U
     g[ (word,tag) ] = 1
 
-    g[ (str.lower(word),tag) ] = 1
+    g[ (word, history[1], tag, 'test') ] = 1
+    
+    if word != str.lower(word): g[ (str.lower(word),tag) ] = 1
     
     #gNUM:U:r -> 1 if word contains numeric and tag=N
-    b = containsnum(word)
-    if b: g[ (tag, 'N') ] = 1
+    if containsnum(word): g[ (tag, 'N', True) ] = 1
     
     #gSUFF:U:j:v -> 1 if u = suffix(word,j) and t=V
-    for j in xrange(1,4):
-        g[ (word[-j:], j, tag) ] = 1
+    g[ (word[-1:], 's1', tag) ] = 1
+    g[ (word[-2:], 's2', tag) ] = 1
+    g[ (word[-3:], 's3', tag) ] = 1
 
     #gINITIALCAPS:word:V -> 1 if word starts with capital letter, tag=V
-    b = str.isupper(word[0])
-    if b: g[ (tag, 'U') ] = 1
+    if str.isupper(word[0]): g[ (tag, 'U', True) ] = 1
     
     #gWORDLEN:word:V -> 1 if word length = L and tag = V
-    L = len(word)
-    g[ ('len',L,tag) ] = 1
+    g[ ('length:',len(word),tag) ] = 1
 
     #gPREV:word:V -> 1 if prevword == word, tag=V
     if 0 <= history[3]-1 < len(history[2]):
-        g[ (history[2][history[3]-1], tag) ] = 1
-        g[ (history[2][history[3]-1], history[1], tag, 'prevpair') ] = 1
-   
-
-    #prefix features
-    for j in xrange(1,4):
-        g[ (word[:j], j, tag) ] = 1
+        g[ (history[2][history[3]-1], tag, 'w-1') ] = 1
+        g[ (history[2][history[3]-1], tag, 'w-') ] = 1
+        g[ (history[2][history[3]-1], history[1], tag, '1prevpair') ] = 1
         
+        if 0 <= history[3]-2 < len(history[2]):
+            g[ (history[2][history[3]-2], tag, 'w-2') ] = 1
+            g[ (history[2][history[3]-2], tag, 'w-') ] = 1
+            g[ (history[2][history[3]-2], history[0], tag, '2prevpair') ] = 1
+   
+    if 0<= history[3]-3 < len(history[2]):
+        #g[ (history[2][history[3]-3], tag, 'w-3') ] = 1
+        g[ (history[2][history[3]-3], tag, 'w-') ] = 1
+
+    if 0<= history[3]+1 < len(history[2]):
+        g[ (history[2][history[3]+1], tag, 'w+1') ] = 1
+        g[ (history[2][history[3]+1], tag, 'w+') ] = 1
+
+    if 0<= history[3]+2 < len(history[2]):
+        g[ (history[2][history[3]+2], tag, 'w+') ] = 1
+
+    if 0<= history[3]+3 < len(history[2]):
+        g[ (history[2][history[3]+3], tag, 'w+') ] = 1
+    #for i, w in enumerate(history[2]):
+    #    g [(w, 'index: ' + str(i), tag)] = 1
+        
+    #prefix features
+    g[ (word[:1], 'p1', tag) ] = 1
+    g[ (word[:2], 'p2', tag) ] = 1
+    g[ (word[:3], 'p3', tag) ] = 1
+
+    
     #count nums
-    #k = sum(1 for i in word if str.isupper(i))
-    #n = sum(1 for i in word if containsnum(i))
-    #g[ (n, tag,'numct') ] = 1
-    #g[ (k, tag, 'upperct') ] = 1
+    k = sum(1 for i in word if str.isupper(i))
+    n = sum(1 for i in word if containsnum(i))
+    g[ (n, tag,'numct') ] = 1
+    g[ (k, tag, 'upperct') ] = 1
     return g
 
 _digits = re.compile('\d')
@@ -248,6 +271,7 @@ def train_model(trainpath, N, M): #M= number of shards/threads
     for k in xrange(M):
         shard.append(sents[k*shardsize:(k+1)*shardsize])
     L = multiprocessing.Lock()
+    vprev = {} #average the new with the previous perceptron
     for T in xrange(N):
         #each training iteration.
         print 'iteration:',T+1
@@ -262,8 +286,16 @@ def train_model(trainpath, N, M): #M= number of shards/threads
             tp.join()
             v = {}
             for vector in out_q:
-                dictupdate(v,vector)
+                vect_multiply(vector, float(1.0/M))
+                dictupdate(v, vector)
             dictupdate(params, v)
+            #new: average the parameter vector with the previous
+            #dictupdate(params, vprev)
+            #vect_multiply(params, 0.5)
+
+            
+            #vprev = params.copy()
+            #vect_multiply(vprev, 0.1)
             #vect_multiply(params, 1.0/float(M))
             #v = params.copy()
             #params.clear()
@@ -327,12 +359,12 @@ if __name__ == '__main__':
     datapoints = []
     #load_params('tag.model')
     t1 = time.time()
-    train_model(trainpath='gene.train',N=5,M=1)
+    train_model(trainpath='gene.train',N=5,M=2)
     print 'time:',time.time()-t1
     tagFile("gene.dev","gene_dev_t7.out")
     #plot_results(datapoints)
     evalTags("gene.key","gene_dev_t7.out")
-    #tagFile('gene.test','gene_test_p4.out')
+    tagFile('gene.test','gene_test_p4.out')
     #print viterbi_GLM(['There','was','gene','.'])
 
     #trainpreprocess("gene.train")
